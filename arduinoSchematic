@@ -1,0 +1,431 @@
+/*
+  LiquidCrystal Library - Hello World
+ 
+ Demonstrates the use a 16x2 LCD display.  The LiquidCrystal
+ library works with all LCD displays that are compatible with the 
+ Hitachi HD44780 driver. There are many of them out there, and you
+ can usually tell them by the 16-pin interface.
+ 
+ This sketch prints "Hello World!" to the LCD
+ and shows the time.
+ 
+  The circuit:
+ * LCD RS pin to digital pin 12
+ * LCD Enable pin to digital pin 11
+ * LCD D4 pin to digital pin 5
+ * LCD D5 pin to digital pin 4
+ * LCD D6 pin to digital pin 3
+ * LCD D7 pin to digital pin 2
+ * LCD R/W pin to ground
+ * 10K resistor:
+ * ends to +5V and ground
+ * wiper to LCD VO pin (pin 3)
+ 
+ Library originally added 18 Apr 2008
+ by David A. Mellis
+ library modified 5 Jul 2009
+ by Limor Fried (http://www.ladyada.net)
+ example added 9 Jul 2009
+ by Tom Igoe
+ modified 22 Nov 2010
+ by Tom Igoe
+ 
+ This example code is in the public domain.
+
+ http://www.arduino.cc/en/Tutorial/LiquidCrystal
+ */
+
+// include the library code:
+#include <LiquidCrystal.h>
+#include <math.h>
+
+#define TempMax 25
+#define TempMin 21
+#define umbralTempMin 2    //Para no apagar la luz directamente al llegar a la temperatura minima, con esto subiremos 2 grados mas
+
+#define ThermistorPIN 0   // Analog Pin 0
+#define SelectButton 7
+#define OkButton 8
+#define columnaGraficoTemperatura 2
+
+#define DEBOUNCE 10  // button debouncer, how many ms to debounce, 5+ ms is usually plenty
+#define LCDPrintDelay 1000
+#define PWMOutputPin 10
+
+#define SECS_PER_MIN  (60UL)
+#define SECS_PER_HOUR (3600UL)
+#define SECS_PER_DAY  (SECS_PER_HOUR * 24L)
+
+#define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)  
+#define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN) 
+#define numberOfHours(_time_) (( _time_% SECS_PER_DAY) / SECS_PER_HOUR)
+
+// initialize the library with the numbers of the interface pins
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+long LCDLastPrintMillis;
+int led;
+int mode;
+boolean okButtonReleased;
+int okButtonRead;
+byte customChar[8];                //Codigos graficos LCD para la bara de temperaturas
+double TemperaturaMedia;           //Array de temperaturas muestreadas en tiempo real
+int numeroMuestreos;               //Indice para el array tempReadings
+double TemperaturaActual;          //Media de las 10 ultimas muestras recogidas
+double TemperaturaMinimaRegistrada;
+double TemperaturaMaximaRegistrada;
+boolean temperaturaValida;
+boolean limpiarPantalla;
+
+int iteracion;
+int lcdRow;
+int customCharSlot;
+int pwmValue;
+int luzValue;
+
+
+// here is where we define the buttons that we'll use. button "1" is the first, button "6" is the 6th, etc
+byte buttons[] = {7,8}; // the analog 0-5 pins are also known as 14-19
+// This handy macro lets us determine how big the array up above is, by checking the size
+#define NUMBUTTONS sizeof(buttons)
+// we will track if a button is just pressed, just released, or 'currently pressed' 
+volatile byte pressed[NUMBUTTONS], justpressed[NUMBUTTONS], justreleased[NUMBUTTONS];
+
+
+
+
+void mostrarEstadisticas() {
+  lcd.setCursor(0,0); 
+  lcd.print("m "); lcd.print(TemperaturaMinimaRegistrada);
+  lcd.print("  M "); lcd.print(TemperaturaMaximaRegistrada);
+  lcd.setCursor(0,1);
+  lcd.print("T: ");
+  lcd.print(numberOfHours(millis()/1000)); lcd.print("h");
+  lcd.print(numberOfMinutes(millis()/1000)); lcd.print("m");
+  lcd.print(numberOfSeconds(millis()/1000)); lcd.print("s");
+}
+
+
+void mostrarTemperaturaEjecucion() {
+  
+  //Mostrar umbrales de temperatura
+  lcd.setCursor(0,0);
+  lcd.print(TempMin); lcd.print("C "); lcd.print(TempMax); lcd.print("C");
+  
+  //Mostrar temperatura media actual
+  lcd.setCursor(0,1);
+  lcd.print(" "); lcd.print(TemperaturaMedia); lcd.print(" ");
+  
+  //Mostrar estado del ventilador
+  lcd.setCursor(15,0);
+  lcd.write(map(pwmValue, 0, 256, 0, 6));
+  
+  //Mostrar estado de la luz
+  lcd.setCursor(15,1);
+  lcd.write(6 + luzValue);
+}
+
+
+void mostrarBarraTemperatura() {
+  if ( iteracion >= 16 ) iteracion = 0;
+  if (iteracion>7) lcdRow=0; else { lcd.write(16); lcdRow = 1; }
+  lcd.setCursor(columnaGraficoTemperatura, lcdRow);
+  if (iteracion<=7) customCharSlot = iteracion; else customCharSlot = iteracion - 8;
+  lcd.write(customCharSlot);
+  iteracion++;
+}
+
+
+
+void actualizarPantalla() {
+  //Actualizamos cada "LCDPrintDelay" milisegundos
+  if (millis() - LCDPrintDelay >= LCDLastPrintMillis) {
+    if (limpiarPantalla) { lcd.clear(); limpiarPantalla = false; }
+    switch (mode) {
+      case 1: //Modo Ejecucion Normal
+        if (temperaturaValida) {
+          mostrarTemperaturaEjecucion();
+          //mostrarBarraTemperatura();
+        }
+        break;
+      case 2: //Modo Estadisticas
+          mostrarEstadisticas();
+        break;
+      default:
+        break;
+    }    
+    
+    LCDLastPrintMillis = millis();
+      
+  }
+}
+
+
+void muestrearTemperatura() {
+  
+  TemperaturaActual = Thermistor(analogRead(ThermistorPIN));
+  TemperaturaMedia = (TemperaturaMedia + TemperaturaActual) / 2;  
+  
+  if (numeroMuestreos >= 10) { temperaturaValida=true; } 
+  else { 
+    numeroMuestreos++; 
+    TemperaturaMinimaRegistrada = TemperaturaActual; 
+    TemperaturaMaximaRegistrada = TemperaturaActual; 
+  }
+  
+  
+  if (TemperaturaActual < TemperaturaMinimaRegistrada) TemperaturaMinimaRegistrada = TemperaturaActual;
+  if (TemperaturaActual > TemperaturaMaximaRegistrada) TemperaturaMaximaRegistrada = TemperaturaActual;
+}
+
+
+//En funcion de la temperatura actual decide si encender el ventilador (y la potencia)
+//Asi como el estado de la luz
+void evaluarEstado() {
+  
+  //Si estamos por debajo de la temperatura minima hay que encender la luz y apagar el ventilador
+  if (TemperaturaMedia < TempMin) {
+    pwmValue = 0;
+    luzValue = 1;
+  }
+  
+  if (TemperaturaMedia >= TempMin + umbralTempMin && TemperaturaMedia < TempMax) {
+    luzValue = 0;
+  }
+  
+  if (TemperaturaMedia > TempMax) {
+    pwmValue = map(TemperaturaMedia, TempMax, TempMax + 5, 64, 256); 
+  }
+}
+
+
+
+void check_switches()
+{
+  static byte previousstate[NUMBUTTONS];
+  static byte currentstate[NUMBUTTONS];
+  static long lasttime;
+  byte index;
+
+  if (millis() < lasttime) {
+     // we wrapped around, lets just try again
+     lasttime = millis();
+  }
+  
+  if ((lasttime + DEBOUNCE) > millis()) {
+    // not enough time has passed to debounce
+    return; 
+  }
+  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
+  lasttime = millis();
+  
+  for (index = 0; index < NUMBUTTONS; index++) {
+     
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    
+         
+    Serial.print(index, DEC);
+    Serial.print(": cstate=");
+    Serial.print(currentstate[index], DEC);
+    Serial.print(", pstate=");
+    Serial.print(previousstate[index], DEC);
+    Serial.println(", press=");
+    
+    
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          if (mode == 1) mode = 2; else mode = 1;
+          limpiarPantalla = true;
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    //Serial.println(pressed[index], DEC);
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
+  }
+}
+
+
+
+double Thermistor(int RawADC) {
+ // Inputs ADC Value from Thermistor and outputs Temperature in Celsius
+ //  requires: include <math.h>
+ // Utilizes the Steinhart-Hart Thermistor Equation:
+ //    Temperature in Kelvin = 1 / {A + B[ln(R)] + C[ln(R)]^3}
+ //    where A = 0.001129148, B = 0.000234125 and C = 8.76741E-08
+ long Resistance;  double Temp;  // Dual-Purpose variable to save space.
+ Resistance=10000.0*((1024.0/RawADC) - 1);  // Assuming a 10k Thermistor.  Calculation is actually: Resistance = (1024 /ADC -1) * BalanceResistor
+ // For a GND-Thermistor-PullUp--Varef circuit it would be Rtherm=Rpullup/(1024.0/ADC-1)
+ Temp = log(Resistance); // Saving the Log(resistance) so not to calculate it 4 times later. // "Temp" means "Temporary" on this line.
+ Temp = 1 / (0.001129148 + (0.000234125 * Temp) + (0.0000000876741 * Temp * Temp * Temp));   // Now it means both "Temporary" and "Temperature"
+ Temp = Temp - 273.15;  // Convert Kelvin to Celsius                                         // Now it only means "Temperature"
+
+ // BEGIN- Remove these lines for the function not to display anything
+ Serial.print("ADC: "); Serial.print(RawADC); Serial.print("/1024");  // Print out RAW ADC Number
+ // Serial.print(", Volts: "); printDouble(((RawADC*4.860)/1024.0),3);   // 4.860 volts is what my USB Port outputs.
+ Serial.print(", Resistance: "); Serial.print(Resistance); Serial.println("ohms");
+ // END- Remove these lines for the function not to display anything
+
+ // Uncomment this line for the function to return Fahrenheit instead.
+ //Temp = (Temp * 9.0)/ 5.0 + 32.0; // Convert to Fahrenheit
+ return Temp;  // Return the Temperature
+}
+
+
+
+void crearCaracteresPersonalizados() {
+  customChar[0] = 0b00000; customChar[1] = 0b01010; customChar[2] = 0b01010; customChar[3] = 0b01010;
+  customChar[4] = 0b00100; customChar[5] = 0b00000; customChar[6] = 0b00000; customChar[7] = 0b00000;
+  lcd.createChar(0, customChar); //V 0
+  
+  customChar[6] = 0b10000; customChar[7] = 0b10000;
+  lcd.createChar(1, customChar); //V 1
+
+  customChar[6] = 0b11000; customChar[7] = 0b11000;
+  lcd.createChar(2, customChar); //V 2
+  
+  customChar[6] = 0b11100; customChar[7] = 0b11100;
+  lcd.createChar(3, customChar); //V 3
+  
+  customChar[6] = 0b11110; customChar[7] = 0b11110;
+  lcd.createChar(4, customChar); //V 4
+  
+  customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(5, customChar); //V 5
+  
+  
+  customChar[0] = 0b00000; customChar[1] = 0b01000; customChar[2] = 0b01000; customChar[3] = 0b01000;
+  customChar[4] = 0b01110; customChar[5] = 0b00000; customChar[6] = 0b00000; customChar[7] = 0b00000;
+  lcd.createChar(6, customChar); //L Off
+  
+  customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(7, customChar); //L On
+}
+
+
+
+void setup() {
+  
+  //Caracteres personalizados
+  //for (int i = 0; i < 8; i++) {
+  //  for (int j = 0; j <= i; j++) customChar[7-j] = 0b11111; 
+  //  lcd.createChar(i, customChar);
+  //}
+  
+  crearCaracteresPersonalizados();
+  
+  
+  // set up the LCD's number of columns and rows: 
+  lcd.begin(16, 2);
+  
+  // Mensaje de bienvenida
+  lcd.print("Pollomatic v0.1");
+  lcd.setCursor(0,1);
+  lcd.print(".. calibrando ..");
+  
+  
+  LCDLastPrintMillis = millis();  
+  limpiarPantalla = true;
+  
+  
+  //Inicializacion del array de temperaturas registradas
+  numeroMuestreos = 0;
+  TemperaturaMedia = 0;
+  temperaturaValida = false;
+  
+  
+  pinMode(13, OUTPUT);
+  pinMode(PWMOutputPin, OUTPUT);
+  
+  led = 0;
+  Serial.begin(9600);
+  
+  pinMode(OkButton, INPUT);
+  pinMode(SelectButton, INPUT);
+  
+  okButtonReleased = true;
+  okButtonRead = 0;
+  mode = 1;
+  
+  iteracion = 0;
+  lcdRow = 1;
+  pwmValue = 0;
+  luzValue = 0;
+  
+  // Make input & enable pull-up resistors on switch pins
+  for (int i=0; i< NUMBUTTONS; i++) {
+    pinMode(buttons[i], INPUT);
+    digitalWrite(buttons[i], HIGH);
+  }
+
+
+  for (int i=0; i < 10; i++)
+    muestrearTemperatura();
+  
+  //Tiempo de inicializacion
+  delay(2000);
+  lcd.clear();
+}
+
+
+
+
+double temp;
+
+
+void loop() {
+
+  check_switches();
+  muestrearTemperatura();
+  evaluarEstado();
+  actualizarPantalla();
+
+
+  //lcd.setCursor(0, 1);
+  // print the number of seconds since reset:
+  //lcd.print(millis()/1000);
+  
+
+  
+  if (led == 0)
+   led = 1;
+  else 
+    led = 0;
+  //delay(1000);
+  digitalWrite(13, led); 
+  
+  okButtonRead = digitalRead(OkButton);
+  okButtonReleased = (okButtonRead == LOW);
+  if (okButtonRead == HIGH && okButtonReleased) {
+    mode++;
+    if (mode > 4) mode = 1;
+  }
+  
+  switch (mode) {
+    case 1:
+      Serial.println("Modo 1");
+      break;
+    case 2:
+      Serial.println("Modo 2");
+      break;
+    case 3:
+      Serial.println("Modo 3");
+      break;
+    case 4:
+      Serial.println("Modo 4");
+      break;
+    default:
+      Serial.println("[ERROR] Modo incorrecto");
+  }
+  
+  /*
+  if (pwmValue >= 256) pwmValue = 0;
+  analogWrite(PWMOutputPin, pwmValue);
+  pwmValue++;
+  */
+
+}

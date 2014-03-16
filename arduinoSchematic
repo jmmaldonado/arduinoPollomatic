@@ -1,14 +1,5 @@
+
 /*
-  LiquidCrystal Library - Hello World
- 
- Demonstrates the use a 16x2 LCD display.  The LiquidCrystal
- library works with all LCD displays that are compatible with the 
- Hitachi HD44780 driver. There are many of them out there, and you
- can usually tell them by the 16-pin interface.
- 
- This sketch prints "Hello World!" to the LCD
- and shows the time.
- 
   The circuit:
  * LCD RS pin to digital pin 12
  * LCD Enable pin to digital pin 11
@@ -21,36 +12,24 @@
  * ends to +5V and ground
  * wiper to LCD VO pin (pin 3)
  
- Library originally added 18 Apr 2008
- by David A. Mellis
- library modified 5 Jul 2009
- by Limor Fried (http://www.ladyada.net)
- example added 9 Jul 2009
- by Tom Igoe
- modified 22 Nov 2010
- by Tom Igoe
- 
- This example code is in the public domain.
-
- http://www.arduino.cc/en/Tutorial/LiquidCrystal
  */
-
+ 
 // include the library code:
 #include <LiquidCrystal.h>
 #include <math.h>
 
 #define TempMax 25
 #define TempMin 21
-#define umbralTempMin 2    //Para no apagar la luz directamente al llegar a la temperatura minima, con esto subiremos 2 grados mas
+#define umbralTemp 2    //Para no apagar la luz directamente al llegar a la temperatura minima, con esto subiremos 2 grados mas
 
-#define ThermistorPIN 0   // Analog Pin 0
+#define ThermistorPIN 0        // A0 --> Pin donde conectaremos la sonda termica
 #define SelectButton 7
 #define OkButton 8
 #define columnaGraficoTemperatura 2
 
-#define DEBOUNCE 10  // button debouncer, how many ms to debounce, 5+ ms is usually plenty
-#define LCDPrintDelay 1000
-#define PWMOutputPin 10
+#define DEBOUNCE 10            // button debouncer, how many ms to debounce, 5+ ms is usually plenty
+#define LCDPrintDelay 1000     // Tiempo necesario para refrescar la pantalla (1 segundo)
+#define PWMOutputPin 10        //Pin Digital al que conectaremos el transistor para controlar el ventilador
 
 #define SECS_PER_MIN  (60UL)
 #define SECS_PER_HOUR (3600UL)
@@ -60,11 +39,20 @@
 #define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN) 
 #define numberOfHours(_time_) (( _time_% SECS_PER_DAY) / SECS_PER_HOUR)
 
+
+#define _modoEjecucionNormal    1
+#define _modoEstadisticas       2
+#define _modoTiempoVolteo       3
+#define _modoConfigurarTempMin  4
+#define _modoConfigurarTempMax  5
+#define _modoConfigurarUmbrales 6 
+#define _modoDebug              7
+
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 long LCDLastPrintMillis;
 int led;
-int mode;
+int modoActual;                    //Para determinar el modo actual y pintar la pantalla adecuadamente
 boolean okButtonReleased;
 int okButtonRead;
 byte customChar[8];                //Codigos graficos LCD para la bara de temperaturas
@@ -79,8 +67,12 @@ boolean limpiarPantalla;
 int iteracion;
 int lcdRow;
 int customCharSlot;
-int pwmValue;
-int luzValue;
+int pwmValue;                //Valor 0 - 255 para controlar la velocidad del ventilador. Directo al PWMOutputPin con analogWrite()
+int luzValue;                
+int estadoTemperatura;       // -1 (activado por frio) || 0 (en rango aceptable) || 1 (activado por calor)
+                             // de 0 a -1 o 1 no aplican los umbrales, si estamos en 1 o -1 entonces para volver a cero hay q tenerlos en cuenta
+
+
 
 
 // here is where we define the buttons that we'll use. button "1" is the first, button "6" is the 6th, etc
@@ -125,6 +117,82 @@ void mostrarTemperaturaEjecucion() {
 }
 
 
+
+
+
+
+
+
+
+
+/*=============================================
+  ============ MODOS DE EJECUCION =============
+  ============================================= */
+
+
+
+void modoEjecucionNormal() {
+  mostrarTemperaturaEjecucion();
+  //mostrarBarraTemperatura();
+}
+
+
+
+
+void modoEstadisticas() {
+  mostrarEstadisticas();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void actualizarPantalla() {
+  //Actualizamos cada "LCDPrintDelay" milisegundos
+  if (millis() - LCDPrintDelay >= LCDLastPrintMillis) {
+    if (limpiarPantalla) { lcd.clear(); limpiarPantalla = false; }
+    
+    switch (modoActual) {
+      case _modoEjecucionNormal: modoEjecucionNormal(); break;
+      case _modoEstadisticas: modoEstadisticas(); break;
+        break;
+      default:
+        break;
+        
+    }    
+    
+    LCDLastPrintMillis = millis();
+      
+  }
+}
+
+
+
+int cambiaModo(boolean bot0, boolean bot1) {
+  int nuevoModo = modoActual;
+  
+  return nuevoModo;
+}
+
+
+
 void mostrarBarraTemperatura() {
   if ( iteracion >= 16 ) iteracion = 0;
   if (iteracion>7) lcdRow=0; else { lcd.write(16); lcdRow = 1; }
@@ -135,29 +203,6 @@ void mostrarBarraTemperatura() {
 }
 
 
-
-void actualizarPantalla() {
-  //Actualizamos cada "LCDPrintDelay" milisegundos
-  if (millis() - LCDPrintDelay >= LCDLastPrintMillis) {
-    if (limpiarPantalla) { lcd.clear(); limpiarPantalla = false; }
-    switch (mode) {
-      case 1: //Modo Ejecucion Normal
-        if (temperaturaValida) {
-          mostrarTemperaturaEjecucion();
-          //mostrarBarraTemperatura();
-        }
-        break;
-      case 2: //Modo Estadisticas
-          mostrarEstadisticas();
-        break;
-      default:
-        break;
-    }    
-    
-    LCDLastPrintMillis = millis();
-      
-  }
-}
 
 
 void muestrearTemperatura() {
@@ -182,19 +227,66 @@ void muestrearTemperatura() {
 //Asi como el estado de la luz
 void evaluarEstado() {
   
+  
+  /* VERSION 1 sin tener en cuenta las transiciones de estado
+  
   //Si estamos por debajo de la temperatura minima hay que encender la luz y apagar el ventilador
   if (TemperaturaMedia < TempMin) {
     pwmValue = 0;
     luzValue = 1;
   }
   
-  if (TemperaturaMedia >= TempMin + umbralTempMin && TemperaturaMedia < TempMax) {
+  if (TemperaturaMedia >= TempMin + umbralTemp && TemperaturaMedia < TempMax) {
     luzValue = 0;
   }
+  
   
   if (TemperaturaMedia > TempMax) {
     pwmValue = map(TemperaturaMedia, TempMax, TempMax + 5, 64, 256); 
   }
+  */
+  
+  
+  if ( estadoTemperatura == 0 ) {      //Estamos operando dentro de los umbrales normales (TMin - TMax)
+    if (TemperaturaMedia < TempMin) { 
+      pwmValue = 0; luzValue = 1; estadoTemperatura = -1; 
+    }
+    
+    if (TemperaturaMedia >= TempMin && TemperaturaMedia < TempMax) {
+      pwmValue = 0; luzValue = 0;  estadoTemperatura = 0;
+    }
+    
+    
+    if (TemperaturaMedia > TempMax) {
+      pwmValue = map(TemperaturaMedia, TempMax, TempMax + 5, 64, 256); 
+      luzValue = 0;
+      estadoTemperatura = 1;
+    }
+  }
+  
+  else if ( estadoTemperatura == -1 ) {     //Hemos bajado de TMin, por tanto hay que tener en cuenta el umbral para volver a estado 0
+    if (TemperaturaMedia < TempMin + umbralTemp) { 
+      luzValue = 1; estadoTemperatura = -1; 
+    }
+    
+    if (TemperaturaMedia >= TempMin + umbralTemp && TemperaturaMedia < TempMax) {
+      luzValue = 0;  estadoTemperatura = 0;
+    }
+  }
+  
+  
+  else if ( estadoTemperatura == 1 ) {      //Hemos subido de TMax, por tanto hay que tener en cuenta el umbral para volver a estado 0
+    
+    if (TemperaturaMedia >= TempMin && TemperaturaMedia < TempMax - umbralTemp) {
+      pwmValue = 0; estadoTemperatura = 0;
+    }
+    
+    
+    if (TemperaturaMedia > TempMax - umbralTemp) {
+      pwmValue = map(TemperaturaMedia, TempMax - umbralTemp, TempMax + umbralTemp, 0, 255);
+    }
+  }
+  
 }
 
 
@@ -235,7 +327,7 @@ void check_switches()
       if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
           // just pressed
           justpressed[index] = 1;
-          if (mode == 1) mode = 2; else mode = 1;
+          if (modoActual == 1) modoActual = 2; else modoActual = 1;
           limpiarPantalla = true;
       }
       else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
@@ -349,12 +441,13 @@ void setup() {
   
   okButtonReleased = true;
   okButtonRead = 0;
-  mode = 1;
+  modoActual = _modoEjecucionNormal;
   
   iteracion = 0;
   lcdRow = 1;
   pwmValue = 0;
   luzValue = 0;
+  estadoTemperatura = 0;
   
   // Make input & enable pull-up resistors on switch pins
   for (int i=0; i< NUMBUTTONS; i++) {
@@ -401,11 +494,11 @@ void loop() {
   okButtonRead = digitalRead(OkButton);
   okButtonReleased = (okButtonRead == LOW);
   if (okButtonRead == HIGH && okButtonReleased) {
-    mode++;
-    if (mode > 4) mode = 1;
+    modoActual++;
+    if (modoActual > 4) modoActual = 1;
   }
   
-  switch (mode) {
+  switch (modoActual) {
     case 1:
       Serial.println("Modo 1");
       break;

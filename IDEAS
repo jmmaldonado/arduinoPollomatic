@@ -1,0 +1,31 @@
+Interfaz pantalla principal
+===========================
+
+31.0 39.6XXXx VX
+T 34.73 CXXXXxLX
+
+31.0-39.6 VX  LX
+XXxxXXXxx 34.56C
+
+
+Para calcular el grafico de temperatura y actualizarlo cada minuto:
+
+1. Array de equivalencias con las barras de la pantalla (vacio, 1bar, 2bar, ..., lleno)
+   Iconos int[8] = { 254, 95, 0, 1, 2, 3, 4, 255 };
+   //Podemos reutilizar 3 caracteres existentes (vacio, 1bar, lleno) y asi crear tres iconos adicionales
+   
+   
+2. Actualizacion del grafico
+   Grafico int[9];
+   TMedia
+   si ha pasado 1 segundo
+      TMedia = (TMedia + TActual) / 2;
+      TMax = max(TMax, TActual);
+      TMin = min(TMin, TActual);
+   si ha pasado 1 minuto
+      Grafico[0] = Grafico[1];
+      Grafico[1] = Grafico[2];
+      ...
+      Grafico[7] = Grafico[8];
+      Grafico[8] = Iconos[map(TMedia, TMax, TMin, 0, 7)];
+      pintarGrafico();

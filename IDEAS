@@ -29,3 +29,8 @@ Para calcular el grafico de temperatura y actualizarlo cada minuto:
       Grafico[7] = Grafico[8];
       Grafico[8] = Iconos[map(TMedia, TMax, TMin, 0, 7)];
       pintarGrafico();
+
+
+
+Rele http://www.electrosome.com/wp-content/uploads/2013/02/Interfacing-Relay-with-PIC-using-Transistor-1024x647.jpg
+Vent http://www.instructables.com/id/Use-Arduino-with-TIP120-transistor-to-control-moto/

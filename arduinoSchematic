@@ -28,8 +28,8 @@
 #define columnaGraficoTemperatura 2
 
 #define DEBOUNCE 10            // button debouncer, how many ms to debounce, 5+ ms is usually plenty
-#define LCDPrintDelay 1000     // Tiempo necesario para refrescar la pantalla (1 segundo)
-#define PWMOutputPin 10        //Pin Digital al que conectaremos el transistor para controlar el ventilador
+
+
 
 #define SECS_PER_MIN  (60UL)
 #define SECS_PER_HOUR (3600UL)
@@ -48,29 +48,85 @@
 #define _modoConfigurarUmbrales 6 
 #define _modoDebug              7
 
-// initialize the library with the numbers of the interface pins
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
-long LCDLastPrintMillis;
+
+
+
+
+
+
 int led;
 int modoActual;                    //Para determinar el modo actual y pintar la pantalla adecuadamente
 boolean okButtonReleased;
 int okButtonRead;
-byte customChar[8];                //Codigos graficos LCD para la bara de temperaturas
+
+
+int iteracion;
+int lcdRow;
+int customCharSlot;
+int pwmValue;                //Valor 0 - 255 para controlar la velocidad del ventilador. Directo al PWMOutputPin con analogWrite()               
+                             
+int input = 0;
+
+
+
+
+long volteoHuevo;            //Determina cuando se ha volteado el huevo por ultima vez
+
+
+
+
+
+/// VARAIABLES TEMPERATURA ///
+
 double TemperaturaMedia;           //Array de temperaturas muestreadas en tiempo real
 int numeroMuestreos;               //Indice para el array tempReadings
 double TemperaturaActual;          //Media de las 10 ultimas muestras recogidas
 double TemperaturaMinimaRegistrada;
 double TemperaturaMaximaRegistrada;
 boolean temperaturaValida;
-boolean limpiarPantalla;
-
-int iteracion;
-int lcdRow;
-int customCharSlot;
-int pwmValue;                //Valor 0 - 255 para controlar la velocidad del ventilador. Directo al PWMOutputPin con analogWrite()
-int luzValue;                
-int estadoTemperatura;       // -1 (activado por frio) || 0 (en rango aceptable) || 1 (activado por calor)
+int estadoTemperatura;       // -1 (activado por frio) || 0 (en rango aceptable) || 1 (activado por calor)u
                              // de 0 a -1 o 1 no aplican los umbrales, si estamos en 1 o -1 entonces para volver a cero hay q tenerlos en cuenta
+
+
+
+
+/// VARIABLES VENTILADOR ///
+
+#define PWMOutputPin 10        //Pin Digital al que conectaremos el transistor para controlar el ventilador
+int velocidadVentilador = 0;   //[0 - 4] Con este valor actualizaremos la pantalla y el valor PWMOutput
+
+
+
+
+
+/// VARIABLES LUZ
+int luzValue = 0;             //Determina el estado de la luz [0, 1] --> Si es 1, en el LCD se pintara el icono 4 (relleno)
+
+
+
+
+
+/// VARIABLES LCD
+
+#define LCDPrintDelay 1000     // Tiempo necesario para refrescar la pantalla (1 segundo)
+#define iconoPollito            6
+#define iconoReloj              5
+#define iconoTempMin            3
+#define iconoTempMax            4
+
+String errorString = "";
+byte customChar[8];                      //Codigos graficos LCD para la bara de temperaturas
+boolean limpiarPantalla;                 //Determina cuando hay que limpiar la pantalla antes de un refresco
+long LCDLastPrintMillis;                 //Determina cuando fue la ultima actualizacion de pantalla
+int IconosLCD[5] = { 254, 0, 1, 2, 255}; //Iconos de barras para lcd.write(iconosLCD[numBarras]); 
+
+
+// initialize the library with the numbers of the interface pins
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+
+
+
 
 
 
@@ -99,6 +155,8 @@ void mostrarEstadisticas() {
 
 void mostrarTemperaturaEjecucion() {
   
+  /* v1
+  
   //Mostrar umbrales de temperatura
   lcd.setCursor(0,0);
   lcd.print(TempMin); lcd.print("C "); lcd.print(TempMax); lcd.print("C");
@@ -114,9 +172,50 @@ void mostrarTemperaturaEjecucion() {
   //Mostrar estado de la luz
   lcd.setCursor(15,1);
   lcd.write(6 + luzValue);
+  */
+  
+  
+  //v2
+  lcd.setCursor(0,0);
+  lcd.write(iconoTempMin); lcd.print(TempMin); lcd.print("C "); lcd.write(iconoTempMax); lcd.print(TempMax); lcd.print("C ");
+  lcd.print(TemperaturaMedia); lcd.print("C");
+  
 }
 
 
+
+void mostrarTiempoVolteoHuevo() {
+  
+  //Limpiar la fila de abajo
+  lcd.setCursor(0,1);
+  lcd.print("         ");
+  
+  lcd.setCursor(0,1);
+  lcd.write(iconoPollito); 
+  
+  
+  //Mostrar Tiempo desde el ultimo volteo
+  long transcurridoVolteo = millis() - volteoHuevo;
+  
+  lcd.print(numberOfHours(transcurridoVolteo/1000)); lcd.print("h");
+  lcd.print(numberOfMinutes(transcurridoVolteo/1000)); lcd.print("m");
+  lcd.print(numberOfSeconds(transcurridoVolteo/1000)); 
+  
+}
+
+
+
+void mostrarEstadoVentilador() {
+  lcd.setCursor(10,1);
+  lcd.print("V"); lcd.write(IconosLCD[velocidadVentilador]);  
+}
+
+
+
+void mostrarEstadoLuz() {
+  lcd.setCursor(14,1);
+  lcd.print("L"); lcd.write(IconosLCD[luzValue*4]); //Si el estado es 0, pondra el icono vacio, si el estado es 1, pondra el 4
+}
 
 
 
@@ -133,7 +232,9 @@ void mostrarTemperaturaEjecucion() {
 
 void modoEjecucionNormal() {
   mostrarTemperaturaEjecucion();
-  //mostrarBarraTemperatura();
+  mostrarTiempoVolteoHuevo();
+  mostrarEstadoVentilador();
+  mostrarEstadoLuz();
 }
 
 
@@ -145,6 +246,24 @@ void modoEstadisticas() {
 
 
 
+
+
+void modoDebug() {
+  lcd.setCursor(0,0);
+  lcd.print("Debug");
+  lcd.setCursor(0,1);
+  lcd.write(IconosLCD[0]);
+  lcd.write(IconosLCD[1]);
+  lcd.write(IconosLCD[2]);
+  lcd.write(IconosLCD[3]);
+  lcd.write(IconosLCD[4]);
+  
+  lcd.write(3);
+  lcd.write(4);
+  lcd.write(5);
+  lcd.write(6);
+  
+}
 
 
 
@@ -172,7 +291,7 @@ void actualizarPantalla() {
     switch (modoActual) {
       case _modoEjecucionNormal: modoEjecucionNormal(); break;
       case _modoEstadisticas: modoEstadisticas(); break;
-        break;
+      case _modoDebug: modoDebug(); break;
       default:
         break;
         
@@ -185,10 +304,30 @@ void actualizarPantalla() {
 
 
 
-int cambiaModo(boolean bot0, boolean bot1) {
-  int nuevoModo = modoActual;
-  
-  return nuevoModo;
+void cambiaModoBotonSelect() {
+
+  switch (modoActual) {
+    case _modoEjecucionNormal:  modoActual = _modoEstadisticas;     break;
+    case _modoEstadisticas:     modoActual = _modoDebug;            break;
+    case _modoDebug:            modoActual = _modoEjecucionNormal;  break;
+  }
+
+  limpiarPantalla = true;
+
+}
+
+
+
+
+void botonSetPulsado() {
+  if (modoActual == _modoEjecucionNormal) { reiniciarContadorVolteo(); }
+  else if (modoActual == _modoDebug) { return; }
+}
+
+
+
+void reiniciarContadorVolteo() {
+  volteoHuevo = millis(); 
 }
 
 
@@ -205,22 +344,7 @@ void mostrarBarraTemperatura() {
 
 
 
-void muestrearTemperatura() {
-  
-  TemperaturaActual = Thermistor(analogRead(ThermistorPIN));
-  TemperaturaMedia = (TemperaturaMedia + TemperaturaActual) / 2;  
-  
-  if (numeroMuestreos >= 10) { temperaturaValida=true; } 
-  else { 
-    numeroMuestreos++; 
-    TemperaturaMinimaRegistrada = TemperaturaActual; 
-    TemperaturaMaximaRegistrada = TemperaturaActual; 
-  }
-  
-  
-  if (TemperaturaActual < TemperaturaMinimaRegistrada) TemperaturaMinimaRegistrada = TemperaturaActual;
-  if (TemperaturaActual > TemperaturaMaximaRegistrada) TemperaturaMaximaRegistrada = TemperaturaActual;
-}
+
 
 
 //En funcion de la temperatura actual decide si encender el ventilador (y la potencia)
@@ -249,16 +373,17 @@ void evaluarEstado() {
   
   if ( estadoTemperatura == 0 ) {      //Estamos operando dentro de los umbrales normales (TMin - TMax)
     if (TemperaturaMedia < TempMin) { 
-      pwmValue = 0; luzValue = 1; estadoTemperatura = -1; 
+      velocidadVentilador = 0; pwmValue = 0; luzValue = 1; estadoTemperatura = -1; 
     }
     
     if (TemperaturaMedia >= TempMin && TemperaturaMedia < TempMax) {
-      pwmValue = 0; luzValue = 0;  estadoTemperatura = 0;
+      velocidadVentilador = 0; pwmValue = 0; luzValue = 0;  estadoTemperatura = 0;
     }
     
     
     if (TemperaturaMedia > TempMax) {
-      pwmValue = map(TemperaturaMedia, TempMax, TempMax + 5, 64, 256); 
+      //pwmValue = map(TemperaturaMedia, TempMax, TempMax + 5, 64, 256); 
+      velocidadVentilador = map(TemperaturaMedia, TempMax, TempMax + 5, 1, 4);
       luzValue = 0;
       estadoTemperatura = 1;
     }
@@ -278,7 +403,7 @@ void evaluarEstado() {
   else if ( estadoTemperatura == 1 ) {      //Hemos subido de TMax, por tanto hay que tener en cuenta el umbral para volver a estado 0
     
     if (TemperaturaMedia >= TempMin && TemperaturaMedia < TempMax - umbralTemp) {
-      pwmValue = 0; estadoTemperatura = 0;
+      velocidadVentilador = 0; pwmValue = 0; estadoTemperatura = 0;
     }
     
     
@@ -291,122 +416,32 @@ void evaluarEstado() {
 
 
 
-void check_switches()
-{
-  static byte previousstate[NUMBUTTONS];
-  static byte currentstate[NUMBUTTONS];
-  static long lasttime;
-  byte index;
-
-  if (millis() < lasttime) {
-     // we wrapped around, lets just try again
-     lasttime = millis();
-  }
-  
-  if ((lasttime + DEBOUNCE) > millis()) {
-    // not enough time has passed to debounce
-    return; 
-  }
-  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
-  lasttime = millis();
-  
-  for (index = 0; index < NUMBUTTONS; index++) {
-     
-    currentstate[index] = digitalRead(buttons[index]);   // read the button
-    
-         
-    Serial.print(index, DEC);
-    Serial.print(": cstate=");
-    Serial.print(currentstate[index], DEC);
-    Serial.print(", pstate=");
-    Serial.print(previousstate[index], DEC);
-    Serial.println(", press=");
-    
-    
-    if (currentstate[index] == previousstate[index]) {
-      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
-          // just pressed
-          justpressed[index] = 1;
-          if (modoActual == 1) modoActual = 2; else modoActual = 1;
-          limpiarPantalla = true;
-      }
-      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
-          // just released
-          justreleased[index] = 1;
-      }
-      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
-    }
-    //Serial.println(pressed[index], DEC);
-    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
-  }
-}
 
 
 
-double Thermistor(int RawADC) {
- // Inputs ADC Value from Thermistor and outputs Temperature in Celsius
- //  requires: include <math.h>
- // Utilizes the Steinhart-Hart Thermistor Equation:
- //    Temperature in Kelvin = 1 / {A + B[ln(R)] + C[ln(R)]^3}
- //    where A = 0.001129148, B = 0.000234125 and C = 8.76741E-08
- long Resistance;  double Temp;  // Dual-Purpose variable to save space.
- Resistance=10000.0*((1024.0/RawADC) - 1);  // Assuming a 10k Thermistor.  Calculation is actually: Resistance = (1024 /ADC -1) * BalanceResistor
- // For a GND-Thermistor-PullUp--Varef circuit it would be Rtherm=Rpullup/(1024.0/ADC-1)
- Temp = log(Resistance); // Saving the Log(resistance) so not to calculate it 4 times later. // "Temp" means "Temporary" on this line.
- Temp = 1 / (0.001129148 + (0.000234125 * Temp) + (0.0000000876741 * Temp * Temp * Temp));   // Now it means both "Temporary" and "Temperature"
- Temp = Temp - 273.15;  // Convert Kelvin to Celsius                                         // Now it only means "Temperature"
-
- // BEGIN- Remove these lines for the function not to display anything
- Serial.print("ADC: "); Serial.print(RawADC); Serial.print("/1024");  // Print out RAW ADC Number
- // Serial.print(", Volts: "); printDouble(((RawADC*4.860)/1024.0),3);   // 4.860 volts is what my USB Port outputs.
- Serial.print(", Resistance: "); Serial.print(Resistance); Serial.println("ohms");
- // END- Remove these lines for the function not to display anything
-
- // Uncomment this line for the function to return Fahrenheit instead.
- //Temp = (Temp * 9.0)/ 5.0 + 32.0; // Convert to Fahrenheit
- return Temp;  // Return the Temperature
-}
 
 
 
-void crearCaracteresPersonalizados() {
-  customChar[0] = 0b00000; customChar[1] = 0b01010; customChar[2] = 0b01010; customChar[3] = 0b01010;
-  customChar[4] = 0b00100; customChar[5] = 0b00000; customChar[6] = 0b00000; customChar[7] = 0b00000;
-  lcd.createChar(0, customChar); //V 0
-  
-  customChar[6] = 0b10000; customChar[7] = 0b10000;
-  lcd.createChar(1, customChar); //V 1
 
-  customChar[6] = 0b11000; customChar[7] = 0b11000;
-  lcd.createChar(2, customChar); //V 2
-  
-  customChar[6] = 0b11100; customChar[7] = 0b11100;
-  lcd.createChar(3, customChar); //V 3
-  
-  customChar[6] = 0b11110; customChar[7] = 0b11110;
-  lcd.createChar(4, customChar); //V 4
-  
-  customChar[6] = 0b11111; customChar[7] = 0b11111;
-  lcd.createChar(5, customChar); //V 5
-  
-  
-  customChar[0] = 0b00000; customChar[1] = 0b01000; customChar[2] = 0b01000; customChar[3] = 0b01000;
-  customChar[4] = 0b01110; customChar[5] = 0b00000; customChar[6] = 0b00000; customChar[7] = 0b00000;
-  lcd.createChar(6, customChar); //L Off
-  
-  customChar[6] = 0b11111; customChar[7] = 0b11111;
-  lcd.createChar(7, customChar); //L On
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 void setup() {
-  
-  //Caracteres personalizados
-  //for (int i = 0; i < 8; i++) {
-  //  for (int j = 0; j <= i; j++) customChar[7-j] = 0b11111; 
-  //  lcd.createChar(i, customChar);
-  //}
   
   crearCaracteresPersonalizados();
   
@@ -475,6 +510,8 @@ void loop() {
   check_switches();
   muestrearTemperatura();
   evaluarEstado();
+  controlVentilador();
+  controlLuz();
   actualizarPantalla();
 
 
@@ -491,13 +528,20 @@ void loop() {
   //delay(1000);
   digitalWrite(13, led); 
   
+  
+  
+  /*
   okButtonRead = digitalRead(OkButton);
   okButtonReleased = (okButtonRead == LOW);
   if (okButtonRead == HIGH && okButtonReleased) {
     modoActual++;
-    if (modoActual > 4) modoActual = 1;
+    if (modoActual > 7) modoActual = 1;
   }
+  */
   
+  
+  
+  /*
   switch (modoActual) {
     case 1:
       Serial.println("Modo 1");
@@ -514,11 +558,266 @@ void loop() {
     default:
       Serial.println("[ERROR] Modo incorrecto");
   }
+  */
+  
   
   /*
   if (pwmValue >= 256) pwmValue = 0;
   analogWrite(PWMOutputPin, pwmValue);
   pwmValue++;
   */
+  
+  
+  input = Serial.read();
+    if (input == '0'){
+      analogWrite(PWMOutputPin, 0);
+      Serial.println("Speed is 0!");
+    }
+    if (input == '1'){
+      analogWrite(PWMOutputPin, 64);
+      Serial.println("Speed is at 25%");
+    }
+    if (input == '2'){
+      analogWrite(PWMOutputPin, 127);
+      Serial.println("Speed is at 50%");
+    }
+    if (input == '3'){
+      analogWrite(PWMOutputPin, 192);
+      Serial.println("Speed is at 75%");
+    }
+    if (input == '4'){
+      analogWrite(PWMOutputPin,255);
+      Serial.println("Speed is at 100%");
+    }
+  
 
+}
+
+
+
+
+
+
+
+
+void controlVentilador() {
+  
+  switch (velocidadVentilador) {
+    case 0: analogWrite(PWMOutputPin, 0); break;
+    case 1: analogWrite(PWMOutputPin, 64); break;
+    case 2: analogWrite(PWMOutputPin, 127); break;
+    case 3: analogWrite(PWMOutputPin, 192); break;
+    case 4: analogWrite(PWMOutputPin, 255); break;
+    default: errorString = "ERROR Vel. Vent"; break;
+  }
+  
+}
+
+
+
+
+void controlLuz() {
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////
+//              UTILIDADES TEMPERATURA                    //
+////////////////////////////////////////////////////////////
+
+
+double obtenerTemperatura() {
+  return (5.0 * analogRead(ThermistorPIN) * 100.0)/1024.0;
+}
+
+
+void muestrearTemperatura() {
+  
+  TemperaturaActual = obtenerTemperatura();
+  TemperaturaMedia = (TemperaturaMedia + TemperaturaActual) / 2;  
+  
+  if (numeroMuestreos >= 10) { temperaturaValida=true; } 
+  else { 
+    numeroMuestreos++; 
+    TemperaturaMinimaRegistrada = TemperaturaActual; 
+    TemperaturaMaximaRegistrada = TemperaturaActual; 
+  }
+  
+  
+  if (TemperaturaActual < TemperaturaMinimaRegistrada) TemperaturaMinimaRegistrada = TemperaturaActual;
+  if (TemperaturaActual > TemperaturaMaximaRegistrada) TemperaturaMaximaRegistrada = TemperaturaActual;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////
+//                  UTILIDADES LCD                        //
+////////////////////////////////////////////////////////////
+
+void crearCaracteresPersonalizados() {
+
+  customChar[0] = 0b00000; customChar[1] = 0b00000; customChar[2] = 0b00000; customChar[3] = 0b00000;
+  customChar[4] = 0b00000; customChar[5] = 0b00000; customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(0, customChar); //2 barras
+  
+
+  customChar[0] = 0b00000; customChar[1] = 0b00000; customChar[2] = 0b00000; customChar[3] = 0b00000;
+  customChar[4] = 0b11111; customChar[5] = 0b11111; customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(1, customChar); //4 barras
+  
+  
+  customChar[0] = 0b00000; customChar[1] = 0b00000; customChar[2] = 0b11111; customChar[3] = 0b11111;
+  customChar[4] = 0b11111; customChar[5] = 0b11111; customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(2, customChar); //6 barras
+  
+  
+  
+  //Icono Termometro minimo
+  customChar[0] = 0b01110; customChar[1] = 0b01010; customChar[2] = 0b01010; customChar[3] = 0b01010;
+  customChar[4] = 0b01010; customChar[5] = 0b10001; customChar[6] = 0b11111; customChar[7] = 0b01110;
+  lcd.createChar(3, customChar); //Termometro minimo
+  
+  
+  //Icono Termometro maximo
+  customChar[0] = 0b01110; customChar[1] = 0b01110; customChar[2] = 0b01110; customChar[3] = 0b01110;
+  customChar[4] = 0b01110; customChar[5] = 0b11111; customChar[6] = 0b11111; customChar[7] = 0b01110;
+  lcd.createChar(4, customChar); //Termometro maximo
+  
+  
+  //Icono Reloj
+  customChar[0] = 0b00000; customChar[1] = 0b01110; customChar[2] = 0b10101; customChar[3] = 0b10111;
+  customChar[4] = 0b10001; customChar[5] = 0b01110; customChar[6] = 0b00000; customChar[7] = 0b00000;
+  lcd.createChar(5, customChar); //Termometro minimo
+  
+  
+  //Icono Pollito
+  customChar[0] = 0b11100; customChar[1] = 0b10100; customChar[2] = 0b11111; customChar[3] = 0b01000;
+  customChar[4] = 0b01100; customChar[5] = 0b11110; customChar[6] = 0b11110; customChar[7] = 0b11110;
+  lcd.createChar(6, customChar); //Pollito
+  
+}
+
+
+
+
+/*
+void crearCaracteresPersonalizadosOLDBarras() {
+  customChar[0] = 0b00000; customChar[1] = 0b01010; customChar[2] = 0b01010; customChar[3] = 0b01010;
+  customChar[4] = 0b00100; customChar[5] = 0b00000; customChar[6] = 0b00000; customChar[7] = 0b00000;
+  lcd.createChar(0, customChar); //V 0
+  
+  customChar[6] = 0b10000; customChar[7] = 0b10000;
+  lcd.createChar(1, customChar); //V 1
+
+  customChar[6] = 0b11000; customChar[7] = 0b11000;
+  lcd.createChar(2, customChar); //V 2
+  
+  customChar[6] = 0b11100; customChar[7] = 0b11100;
+  lcd.createChar(3, customChar); //V 3
+  
+  customChar[6] = 0b11110; customChar[7] = 0b11110;
+  lcd.createChar(4, customChar); //V 4
+  
+  customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(5, customChar); //V 5
+  
+  
+  customChar[0] = 0b00000; customChar[1] = 0b01000; customChar[2] = 0b01000; customChar[3] = 0b01000;
+  customChar[4] = 0b01110; customChar[5] = 0b00000; customChar[6] = 0b00000; customChar[7] = 0b00000;
+  lcd.createChar(6, customChar); //L Off
+  
+  customChar[6] = 0b11111; customChar[7] = 0b11111;
+  lcd.createChar(7, customChar); //L On
+}
+*/
+
+
+
+
+
+////////////////////////////////////////////////////////////
+//                  UTILIDADES I/O                        //
+////////////////////////////////////////////////////////////
+
+
+void check_switches()
+{
+  static byte previousstate[NUMBUTTONS];
+  static byte currentstate[NUMBUTTONS];
+  static long lasttime;
+  byte index;
+
+  if (millis() < lasttime) {
+     // we wrapped around, lets just try again
+     lasttime = millis();
+  }
+  
+  if ((lasttime + DEBOUNCE) > millis()) {
+    // not enough time has passed to debounce
+    return; 
+  }
+  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
+  lasttime = millis();
+  
+  
+  
+  //Comprobar boton SELECT
+  index = 0;
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          cambiaModoBotonSelect();
+          
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
+  
+  
+  
+  //Comprobar boton SET
+  index = 1;
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          botonSetPulsado();
+          
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons  
+  
 }

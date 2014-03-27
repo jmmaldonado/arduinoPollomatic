@@ -68,7 +68,7 @@ int iteracion;
 int lcdRow;
 int customCharSlot;
 int pwmValue;                //Valor 0 - 255 para controlar la velocidad del ventilador. Directo al PWMOutputPin con analogWrite()
-int luzValue;                
+               
                              
 int input = 0;
 
@@ -109,8 +109,8 @@ int velocidadVentilador = 0;   //[0 - 4] Con este valor actualizaremos la pantal
 
 
 /// VARIABLES LUZ
-int estadoLuz = 0;             //Determina el estado de la luz [0, 1] --> Si es 1, en el LCD se pintara el icono 4 (relleno)
-
+//int estadoLuz = 0;             //Determina el estado de la luz [0, 1] --> Si es 1, en el LCD se pintara el icono 4 (relleno)
+int luzValue = 0; 
 
 
 
@@ -207,7 +207,7 @@ void mostrarEstadoVentilador() {
 
 void mostrarEstadoLuz() {
   lcd.setCursor(14,1);
-  lcd.print("L"); lcd.write(IconosLCD[estadoLuz*4]); //Si el estado es 0, pondra el icono vacio, si el estado es 1, pondra el 4
+  lcd.print("L"); lcd.write(IconosLCD[luzValue*4]); //Si el estado es 0, pondra el icono vacio, si el estado es 1, pondra el 4
 }
 
 
@@ -246,6 +246,7 @@ void modoConfigurarTempMin() {
   lcd.setCursor(0,1);
   lcd.write(iconoTempMin); lcd.print(TempMin); 
 }
+
 
 
 
@@ -357,17 +358,7 @@ void cambiaModoBotonSelect() {
 void botonSetPulsado() {
   
   if (modoActual == _modoEjecucionNormal) { reiniciarContadorVolteo(); }
-  
-  else if (modoActual == _modoDebug) { 
-    switch (velocidadVentilador) {
-      case 0: velocidadVentilador = 1; estadoLuz = 1; break;
-      case 1: velocidadVentilador = 2; estadoLuz = 0; break;
-      case 2: velocidadVentilador = 3; estadoLuz = 1; break;
-      case 3: velocidadVentilador = 4; estadoLuz = 0; break;
-      case 4: velocidadVentilador = 0; estadoLuz = 0; break;
-    }
-  }
-  
+   
   else if (modoActual == _modoConfigurarTempMin) {
     if (TempMin < 40) TempMin = TempMin + 1;
     else TempMin = 20;
@@ -385,6 +376,17 @@ void botonSetPulsado() {
     else umbralTemp = 0;
     EEPROM.write(EEPROMUmbral, umbralTemp);
   }  
+  
+  
+  else if (modoActual == _modoDebug) { 
+    switch (velocidadVentilador) {
+      case 0: velocidadVentilador = 1; luzValue = 1; break;
+      case 1: velocidadVentilador = 2; luzValue = 0; break;
+      case 2: velocidadVentilador = 3; luzValue = 1; break;
+      case 3: velocidadVentilador = 4; luzValue = 0; break;
+      case 4: velocidadVentilador = 0; luzValue = 0; break;
+    }
+  }
   
   
 }
@@ -457,6 +459,8 @@ void evaluarEstado() {
     }
   }
   
+  
+  
   else if ( estadoTemperatura == -1 ) {     //Hemos bajado de TMin, por tanto hay que tener en cuenta el umbral para volver a estado 0
     if (TemperaturaMedia < TempMin + umbralTemp) { 
       luzValue = 1; estadoTemperatura = -1; 
@@ -466,6 +470,7 @@ void evaluarEstado() {
       luzValue = 0;  estadoTemperatura = 0;
     }
   }
+  
   
   
   else if ( estadoTemperatura == 1 ) {      //Hemos subido de TMax, por tanto hay que tener en cuenta el umbral para volver a estado 0
@@ -484,103 +489,7 @@ void evaluarEstado() {
 
 
 
-void check_switches()
-{
-  static byte previousstate[NUMBUTTONS];
-  static byte currentstate[NUMBUTTONS];
-  static long lasttime;
-  byte index;
 
-  if (millis() < lasttime) {
-     // we wrapped around, lets just try again
-     lasttime = millis();
-  }
-  
-  if ((lasttime + DEBOUNCE) > millis()) {
-    // not enough time has passed to debounce
-    return; 
-  }
-  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
-  lasttime = millis();
-  
-  
-  
-  //Comprobar boton SELECT
-  index = 0;
-    currentstate[index] = digitalRead(buttons[index]);   // read the button
-    if (currentstate[index] == previousstate[index]) {
-      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
-          // just pressed
-          justpressed[index] = 1;
-          cambiaModoBotonSelect();
-          
-      }
-      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
-          // just released
-          justreleased[index] = 1;
-      }
-      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
-    }
-    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
-  
-  
-  
-  //Comprobar boton SET
-  index = 1;
-    currentstate[index] = digitalRead(buttons[index]);   // read the button
-    if (currentstate[index] == previousstate[index]) {
-      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
-          // just pressed
-          justpressed[index] = 1;
-          botonSetPulsado();
-          
-      }
-      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
-          // just released
-          justreleased[index] = 1;
-      }
-      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
-    }
-    previousstate[index] = currentstate[index];   // keep a running tally of the buttons  
-  
-  
-  
-  /*
-  
-  for (index = 0; index < NUMBUTTONS; index++) {
-     
-    currentstate[index] = digitalRead(buttons[index]);   // read the button
-    
-         
-    Serial.print(index, DEC);
-    Serial.print(": cstate=");
-    Serial.print(currentstate[index], DEC);
-    Serial.print(", pstate=");
-    Serial.print(previousstate[index], DEC);
-    Serial.println(", press=");
-    
-    
-    if (currentstate[index] == previousstate[index]) {
-      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
-          // just pressed
-          justpressed[index] = 1;
-          if (modoActual == 1) modoActual = 2; else if (modoActual == 2) modoActual = 7; else modoActual = 1;
-          limpiarPantalla = true;
-      }
-      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
-          // just released
-          justreleased[index] = 1;
-      }
-      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
-    }
-    //Serial.println(pressed[index], DEC);
-    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
-  }
-  
-  */
-  
-  
-}
 
 
 
@@ -606,6 +515,7 @@ void check_switches()
 
 
 void setup() {
+  
   
   crearCaracteresPersonalizados();
   
@@ -645,7 +555,7 @@ void setup() {
   
   okButtonReleased = true;
   okButtonRead = 0;
-  modoActual = _modoEjecucionNormal;
+  
   
   iteracion = 0;
   lcdRow = 1;
@@ -662,6 +572,11 @@ void setup() {
 
   for (int i=0; i < 10; i++)
     muestrearTemperatura();
+  
+  
+  //Hay que ponerlo en el ultimo modo para que al inicializar aparezca en el primero (debe ser algo de rebote en la inicializacion de pulsadores...)
+  modoActual = _modoDebug;
+  
   
   //Tiempo de inicializacion
   delay(2000);
@@ -692,53 +607,16 @@ void loop() {
   //lcd.print(millis()/1000);
   
 
-  
+  /*
   if (led == 0)
    led = 1;
   else 
     led = 0;
   //delay(1000);
   digitalWrite(13, led); 
-  
-  
-  
-  /*
-  okButtonRead = digitalRead(OkButton);
-  okButtonReleased = (okButtonRead == LOW);
-  if (okButtonRead == HIGH && okButtonReleased) {
-    modoActual++;
-    if (modoActual > 7) modoActual = 1;
-  }
   */
-  
-  
-  
-  /*
-  switch (modoActual) {
-    case 1:
-      Serial.println("Modo 1");
-      break;
-    case 2:
-      Serial.println("Modo 2");
-      break;
-    case 3:
-      Serial.println("Modo 3");
-      break;
-    case 4:
-      Serial.println("Modo 4");
-      break;
-    default:
-      Serial.println("[ERROR] Modo incorrecto");
-  }
-  */
-  
-  
-  /*
-  if (pwmValue >= 256) pwmValue = 0;
-  analogWrite(PWMOutputPin, pwmValue);
-  pwmValue++;
-  */
-  
+
+
   
   input = Serial.read();
     if (input == '0'){
@@ -923,3 +801,117 @@ void crearCaracteresPersonalizadosOLDBarras() {
   lcd.createChar(7, customChar); //L On
 }
 */
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////
+//                  UTILIDADES I/O                        //
+////////////////////////////////////////////////////////////
+
+
+void check_switches()
+{
+  static byte previousstate[NUMBUTTONS];
+  static byte currentstate[NUMBUTTONS];
+  static long lasttime;
+  byte index;
+
+  if (millis() < lasttime) {
+     // we wrapped around, lets just try again
+     lasttime = millis();
+  }
+  
+  if ((lasttime + DEBOUNCE) > millis()) {
+    // not enough time has passed to debounce
+    return; 
+  }
+  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
+  lasttime = millis();
+  
+  
+  
+  //Comprobar boton SELECT
+  index = 0;
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          cambiaModoBotonSelect();
+          
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
+  
+  
+  
+  //Comprobar boton SET
+  index = 1;
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          botonSetPulsado();
+          
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons  
+  
+  
+  
+  /*
+  
+  for (index = 0; index < NUMBUTTONS; index++) {
+     
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    
+         
+    Serial.print(index, DEC);
+    Serial.print(": cstate=");
+    Serial.print(currentstate[index], DEC);
+    Serial.print(", pstate=");
+    Serial.print(previousstate[index], DEC);
+    Serial.println(", press=");
+    
+    
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          if (modoActual == 1) modoActual = 2; else if (modoActual == 2) modoActual = 7; else modoActual = 1;
+          limpiarPantalla = true;
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    //Serial.println(pressed[index], DEC);
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
+  }
+  
+  */
+  
+  
+}

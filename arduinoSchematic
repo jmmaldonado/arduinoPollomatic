@@ -17,10 +17,9 @@
 // include the library code:
 #include <LiquidCrystal.h>
 #include <math.h>
+#include <EEPROM.h>
 
-#define TempMax 25
-#define TempMin 21
-#define umbralTemp 2    //Para no apagar la luz directamente al llegar a la temperatura minima, con esto subiremos 2 grados mas
+
 
 #define ThermistorPIN 0        // A0 --> Pin donde conectaremos la sonda termica
 #define SelectButton 7
@@ -40,15 +39,20 @@
 #define numberOfHours(_time_) (( _time_% SECS_PER_DAY) / SECS_PER_HOUR)
 
 
+
+#define EEPROMTempMin         1
+#define EEPROMTempMax         2
+#define EEPROMUmbral          3
+
+
+
 #define _modoEjecucionNormal    1
 #define _modoEstadisticas       2
 #define _modoTiempoVolteo       3
 #define _modoConfigurarTempMin  4
 #define _modoConfigurarTempMax  5
 #define _modoConfigurarUmbrales 6 
-#define _modoDebug              7
-
-
+#define _modoDebug              7      //Pulsando el boton Set pasamos por las distintas velocidades del ventilador y modos de luz
 
 
 
@@ -63,7 +67,8 @@ int okButtonRead;
 int iteracion;
 int lcdRow;
 int customCharSlot;
-int pwmValue;                //Valor 0 - 255 para controlar la velocidad del ventilador. Directo al PWMOutputPin con analogWrite()               
+int pwmValue;                //Valor 0 - 255 para controlar la velocidad del ventilador. Directo al PWMOutputPin con analogWrite()
+int luzValue;                
                              
 int input = 0;
 
@@ -77,6 +82,10 @@ long volteoHuevo;            //Determina cuando se ha volteado el huevo por ulti
 
 
 /// VARAIABLES TEMPERATURA ///
+
+int TempMax = 25;                  //Limite maximo de temperatura antes de encender el ventilador
+int TempMin = 21;                  //Limite minimo de temperatura antes de encender la luz
+int umbralTemp = 2 ;               //Para no apagar la luz directamente al llegar a la temperatura minima, con esto subiremos 2 grados mas
 
 double TemperaturaMedia;           //Array de temperaturas muestreadas en tiempo real
 int numeroMuestreos;               //Indice para el array tempReadings
@@ -100,7 +109,7 @@ int velocidadVentilador = 0;   //[0 - 4] Con este valor actualizaremos la pantal
 
 
 /// VARIABLES LUZ
-int luzValue = 0;             //Determina el estado de la luz [0, 1] --> Si es 1, en el LCD se pintara el icono 4 (relleno)
+int estadoLuz = 0;             //Determina el estado de la luz [0, 1] --> Si es 1, en el LCD se pintara el icono 4 (relleno)
 
 
 
@@ -143,37 +152,21 @@ volatile byte pressed[NUMBUTTONS], justpressed[NUMBUTTONS], justreleased[NUMBUTT
 
 void mostrarEstadisticas() {
   lcd.setCursor(0,0); 
-  lcd.print("m "); lcd.print(TemperaturaMinimaRegistrada);
-  lcd.print("  M "); lcd.print(TemperaturaMaximaRegistrada);
-  lcd.setCursor(0,1);
-  lcd.print("T: ");
+  lcd.print("Stat "); 
+  lcd.write(iconoReloj);
   lcd.print(numberOfHours(millis()/1000)); lcd.print("h");
   lcd.print(numberOfMinutes(millis()/1000)); lcd.print("m");
   lcd.print(numberOfSeconds(millis()/1000)); lcd.print("s");
+  
+  lcd.setCursor(0,1);
+  lcd.write(iconoTempMin); lcd.print(TemperaturaMinimaRegistrada); 
+  lcd.print("    ");
+  lcd.write(iconoTempMax); lcd.print(TemperaturaMaximaRegistrada);
+  
 }
 
 
 void mostrarTemperaturaEjecucion() {
-  
-  /* v1
-  
-  //Mostrar umbrales de temperatura
-  lcd.setCursor(0,0);
-  lcd.print(TempMin); lcd.print("C "); lcd.print(TempMax); lcd.print("C");
-  
-  //Mostrar temperatura media actual
-  lcd.setCursor(0,1);
-  lcd.print(" "); lcd.print(TemperaturaMedia); lcd.print(" ");
-  
-  //Mostrar estado del ventilador
-  lcd.setCursor(15,0);
-  lcd.write(map(pwmValue, 0, 256, 0, 6));
-  
-  //Mostrar estado de la luz
-  lcd.setCursor(15,1);
-  lcd.write(6 + luzValue);
-  */
-  
   
   //v2
   lcd.setCursor(0,0);
@@ -214,7 +207,7 @@ void mostrarEstadoVentilador() {
 
 void mostrarEstadoLuz() {
   lcd.setCursor(14,1);
-  lcd.print("L"); lcd.write(IconosLCD[luzValue*4]); //Si el estado es 0, pondra el icono vacio, si el estado es 1, pondra el 4
+  lcd.print("L"); lcd.write(IconosLCD[estadoLuz*4]); //Si el estado es 0, pondra el icono vacio, si el estado es 1, pondra el 4
 }
 
 
@@ -246,6 +239,37 @@ void modoEstadisticas() {
 
 
 
+void modoConfigurarTempMin() {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Config Temp Min:");
+  lcd.setCursor(0,1);
+  lcd.write(iconoTempMin); lcd.print(TempMin); 
+}
+
+
+
+void modoConfigurarTempMax() {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Config Temp Max:");
+  lcd.setCursor(0,1);
+  lcd.write(iconoTempMax); lcd.print(TempMax); 
+}
+
+
+
+
+void modoConfigurarUmbrales() {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Config Umbral:");
+  lcd.setCursor(0,1);
+  lcd.write(iconoTempMin); lcd.print(" -> ");
+  lcd.print(umbralTemp);
+  lcd.print(" <- "); lcd.write(iconoTempMax);
+}
+
 
 
 void modoDebug() {
@@ -262,6 +286,9 @@ void modoDebug() {
   lcd.write(4);
   lcd.write(5);
   lcd.write(6);
+  
+  mostrarEstadoVentilador();
+  mostrarEstadoLuz();
   
 }
 
@@ -291,6 +318,9 @@ void actualizarPantalla() {
     switch (modoActual) {
       case _modoEjecucionNormal: modoEjecucionNormal(); break;
       case _modoEstadisticas: modoEstadisticas(); break;
+      case _modoConfigurarTempMin: modoConfigurarTempMin(); break;
+      case _modoConfigurarTempMax: modoConfigurarTempMax(); break;
+      case _modoConfigurarUmbrales: modoConfigurarUmbrales(); break;
       case _modoDebug: modoDebug(); break;
       default:
         break;
@@ -307,9 +337,12 @@ void actualizarPantalla() {
 void cambiaModoBotonSelect() {
 
   switch (modoActual) {
-    case _modoEjecucionNormal:  modoActual = _modoEstadisticas;     break;
-    case _modoEstadisticas:     modoActual = _modoDebug;            break;
-    case _modoDebug:            modoActual = _modoEjecucionNormal;  break;
+    case _modoEjecucionNormal:    modoActual = _modoEstadisticas;       break;
+    case _modoEstadisticas:       modoActual = _modoConfigurarTempMin;  break;
+    case _modoConfigurarTempMin:  modoActual = _modoConfigurarTempMax;  break;
+    case _modoConfigurarTempMax:  modoActual = _modoConfigurarUmbrales; break;
+    case _modoConfigurarUmbrales: modoActual = _modoDebug;              break;
+    case _modoDebug:              modoActual = _modoEjecucionNormal;    break;
   }
 
   limpiarPantalla = true;
@@ -319,10 +352,45 @@ void cambiaModoBotonSelect() {
 
 
 
+
+
 void botonSetPulsado() {
+  
   if (modoActual == _modoEjecucionNormal) { reiniciarContadorVolteo(); }
-  else if (modoActual == _modoDebug) { return; }
+  
+  else if (modoActual == _modoDebug) { 
+    switch (velocidadVentilador) {
+      case 0: velocidadVentilador = 1; estadoLuz = 1; break;
+      case 1: velocidadVentilador = 2; estadoLuz = 0; break;
+      case 2: velocidadVentilador = 3; estadoLuz = 1; break;
+      case 3: velocidadVentilador = 4; estadoLuz = 0; break;
+      case 4: velocidadVentilador = 0; estadoLuz = 0; break;
+    }
+  }
+  
+  else if (modoActual == _modoConfigurarTempMin) {
+    if (TempMin < 40) TempMin = TempMin + 1;
+    else TempMin = 20;
+    EEPROM.write(EEPROMTempMin, TempMin); 
+  }
+  
+  else if (modoActual == _modoConfigurarTempMax) {
+    if (TempMax < 50) TempMax = TempMax + 1;
+    else TempMax = 30;
+    EEPROM.write(EEPROMTempMax, TempMax); 
+  }
+  
+  else if (modoActual == _modoConfigurarUmbrales) {
+    if (umbralTemp < 5) umbralTemp = umbralTemp + 1;
+    else umbralTemp = 0;
+    EEPROM.write(EEPROMUmbral, umbralTemp);
+  }  
+  
+  
 }
+
+
+
 
 
 
@@ -416,7 +484,103 @@ void evaluarEstado() {
 
 
 
+void check_switches()
+{
+  static byte previousstate[NUMBUTTONS];
+  static byte currentstate[NUMBUTTONS];
+  static long lasttime;
+  byte index;
 
+  if (millis() < lasttime) {
+     // we wrapped around, lets just try again
+     lasttime = millis();
+  }
+  
+  if ((lasttime + DEBOUNCE) > millis()) {
+    // not enough time has passed to debounce
+    return; 
+  }
+  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
+  lasttime = millis();
+  
+  
+  
+  //Comprobar boton SELECT
+  index = 0;
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          cambiaModoBotonSelect();
+          
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
+  
+  
+  
+  //Comprobar boton SET
+  index = 1;
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          botonSetPulsado();
+          
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons  
+  
+  
+  
+  /*
+  
+  for (index = 0; index < NUMBUTTONS; index++) {
+     
+    currentstate[index] = digitalRead(buttons[index]);   // read the button
+    
+         
+    Serial.print(index, DEC);
+    Serial.print(": cstate=");
+    Serial.print(currentstate[index], DEC);
+    Serial.print(", pstate=");
+    Serial.print(previousstate[index], DEC);
+    Serial.println(", press=");
+    
+    
+    if (currentstate[index] == previousstate[index]) {
+      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
+          // just pressed
+          justpressed[index] = 1;
+          if (modoActual == 1) modoActual = 2; else if (modoActual == 2) modoActual = 7; else modoActual = 1;
+          limpiarPantalla = true;
+      }
+      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
+          // just released
+          justreleased[index] = 1;
+      }
+      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
+    }
+    //Serial.println(pressed[index], DEC);
+    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
+  }
+  
+  */
+  
+  
+}
 
 
 
@@ -465,6 +629,11 @@ void setup() {
   temperaturaValida = false;
   
   
+  TempMin = EEPROM.read(EEPROMTempMin);
+  TempMax = EEPROM.read(EEPROMTempMax);
+  umbralTemp = EEPROM.read(EEPROMUmbral);
+  
+  
   pinMode(13, OUTPUT);
   pinMode(PWMOutputPin, OUTPUT);
   
@@ -509,7 +678,10 @@ void loop() {
 
   check_switches();
   muestrearTemperatura();
-  evaluarEstado();
+  
+  if (modoActual != _modoDebug)
+    evaluarEstado(); 
+  
   controlVentilador();
   controlLuz();
   actualizarPantalla();
@@ -751,73 +923,3 @@ void crearCaracteresPersonalizadosOLDBarras() {
   lcd.createChar(7, customChar); //L On
 }
 */
-
-
-
-
-
-////////////////////////////////////////////////////////////
-//                  UTILIDADES I/O                        //
-////////////////////////////////////////////////////////////
-
-
-void check_switches()
-{
-  static byte previousstate[NUMBUTTONS];
-  static byte currentstate[NUMBUTTONS];
-  static long lasttime;
-  byte index;
-
-  if (millis() < lasttime) {
-     // we wrapped around, lets just try again
-     lasttime = millis();
-  }
-  
-  if ((lasttime + DEBOUNCE) > millis()) {
-    // not enough time has passed to debounce
-    return; 
-  }
-  // ok we have waited DEBOUNCE milliseconds, lets reset the timer
-  lasttime = millis();
-  
-  
-  
-  //Comprobar boton SELECT
-  index = 0;
-    currentstate[index] = digitalRead(buttons[index]);   // read the button
-    if (currentstate[index] == previousstate[index]) {
-      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
-          // just pressed
-          justpressed[index] = 1;
-          cambiaModoBotonSelect();
-          
-      }
-      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
-          // just released
-          justreleased[index] = 1;
-      }
-      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
-    }
-    previousstate[index] = currentstate[index];   // keep a running tally of the buttons
-  
-  
-  
-  //Comprobar boton SET
-  index = 1;
-    currentstate[index] = digitalRead(buttons[index]);   // read the button
-    if (currentstate[index] == previousstate[index]) {
-      if ((pressed[index] == LOW) && (currentstate[index] == LOW)) {
-          // just pressed
-          justpressed[index] = 1;
-          botonSetPulsado();
-          
-      }
-      else if ((pressed[index] == HIGH) && (currentstate[index] == HIGH)) {
-          // just released
-          justreleased[index] = 1;
-      }
-      pressed[index] = !currentstate[index];  // remember, digital HIGH means NOT pressed
-    }
-    previousstate[index] = currentstate[index];   // keep a running tally of the buttons  
-  
-}

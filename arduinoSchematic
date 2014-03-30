@@ -111,6 +111,7 @@ int velocidadVentilador = 0;   //[0 - 4] Con este valor actualizaremos la pantal
 /// VARIABLES LUZ
 //int estadoLuz = 0;             //Determina el estado de la luz [0, 1] --> Si es 1, en el LCD se pintara el icono 4 (relleno)
 int luzValue = 0; 
+#define LuzPIN 13
 
 
 
@@ -463,7 +464,7 @@ void evaluarEstado() {
   
   else if ( estadoTemperatura == -1 ) {     //Hemos bajado de TMin, por tanto hay que tener en cuenta el umbral para volver a estado 0
     if (TemperaturaMedia < TempMin + umbralTemp) { 
-      luzValue = 1; estadoTemperatura = -1; 
+      luzValue = 1; estadoTemperatura = -1; velocidadVentilador = 0;
     }
     
     if (TemperaturaMedia >= TempMin + umbralTemp && TemperaturaMedia < TempMax) {
@@ -481,7 +482,7 @@ void evaluarEstado() {
     
     
     if (TemperaturaMedia > TempMax - umbralTemp) {
-      pwmValue = map(TemperaturaMedia, TempMax - umbralTemp, TempMax + umbralTemp, 0, 255);
+      velocidadVentilador = map(TemperaturaMedia, TempMax - umbralTemp, TempMax + umbralTemp, 0, 255);
     }
   }
   
@@ -544,7 +545,7 @@ void setup() {
   umbralTemp = EEPROM.read(EEPROMUmbral);
   
   
-  pinMode(13, OUTPUT);
+  pinMode(LuzPIN, OUTPUT);
   pinMode(PWMOutputPin, OUTPUT);
   
   led = 0;
@@ -617,7 +618,7 @@ void loop() {
   */
 
 
-  
+  /*
   input = Serial.read();
     if (input == '0'){
       analogWrite(PWMOutputPin, 0);
@@ -639,7 +640,7 @@ void loop() {
       analogWrite(PWMOutputPin,255);
       Serial.println("Speed is at 100%");
     }
-  
+  */
 
 }
 
@@ -654,7 +655,7 @@ void controlVentilador() {
   
   switch (velocidadVentilador) {
     case 0: analogWrite(PWMOutputPin, 0); break;
-    case 1: analogWrite(PWMOutputPin, 64); break;
+    case 1: analogWrite(PWMOutputPin, 80); break;
     case 2: analogWrite(PWMOutputPin, 127); break;
     case 3: analogWrite(PWMOutputPin, 192); break;
     case 4: analogWrite(PWMOutputPin, 255); break;
@@ -667,7 +668,7 @@ void controlVentilador() {
 
 
 void controlLuz() {
-  
+  digitalWrite(LuzPIN, luzValue);
 }
 
 

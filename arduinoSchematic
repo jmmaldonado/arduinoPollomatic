@@ -52,7 +52,8 @@
 #define _modoConfigurarTempMin  4
 #define _modoConfigurarTempMax  5
 #define _modoConfigurarUmbrales 6 
-#define _modoDebug              7      //Pulsando el boton Set pasamos por las distintas velocidades del ventilador y modos de luz
+#define _modoEjecucionManual    7
+#define _modoDebug              8      //Pulsando el boton Set pasamos por las distintas velocidades del ventilador y modos de luz
 
 
 
@@ -83,8 +84,8 @@ long volteoHuevo;            //Determina cuando se ha volteado el huevo por ulti
 
 /// VARAIABLES TEMPERATURA ///
 
-int TempMax = 25;                  //Limite maximo de temperatura antes de encender el ventilador
-int TempMin = 21;                  //Limite minimo de temperatura antes de encender la luz
+int TempMax = 39;                  //Limite maximo de temperatura antes de encender el ventilador
+int TempMin = 31;                  //Limite minimo de temperatura antes de encender la luz
 int umbralTemp = 2 ;               //Para no apagar la luz directamente al llegar a la temperatura minima, con esto subiremos 2 grados mas
 
 double TemperaturaMedia;           //Array de temperaturas muestreadas en tiempo real
@@ -274,6 +275,19 @@ void modoConfigurarUmbrales() {
 
 
 
+void modoEjecucionManual() {
+  lcd.clear();
+  lcd.setCursor(0,0); 
+  lcd.print("Modo MANUAL");
+  lcd.setCursor(0,1);
+  
+  lcd.print(TemperaturaMedia); lcd.print("C ");
+  mostrarEstadoVentilador();
+  mostrarEstadoLuz();
+}
+
+
+
 void modoDebug() {
   lcd.setCursor(0,0);
   lcd.print("Debug");
@@ -318,12 +332,13 @@ void actualizarPantalla() {
     if (limpiarPantalla) { lcd.clear(); limpiarPantalla = false; }
     
     switch (modoActual) {
-      case _modoEjecucionNormal: modoEjecucionNormal(); break;
-      case _modoEstadisticas: modoEstadisticas(); break;
-      case _modoConfigurarTempMin: modoConfigurarTempMin(); break;
-      case _modoConfigurarTempMax: modoConfigurarTempMax(); break;
-      case _modoConfigurarUmbrales: modoConfigurarUmbrales(); break;
-      case _modoDebug: modoDebug(); break;
+      case _modoEjecucionNormal:     modoEjecucionNormal();    break;
+      case _modoEstadisticas:        modoEstadisticas();       break;
+      case _modoConfigurarTempMin:   modoConfigurarTempMin();  break;
+      case _modoConfigurarTempMax:   modoConfigurarTempMax();  break;
+      case _modoConfigurarUmbrales:  modoConfigurarUmbrales(); break;
+      case _modoEjecucionManual:     modoEjecucionManual();    break;
+      case _modoDebug:               modoDebug();              break;
       default:
         break;
         
@@ -338,12 +353,30 @@ void actualizarPantalla() {
 
 void cambiaModoBotonSelect() {
 
+  /*
   switch (modoActual) {
     case _modoEjecucionNormal:    modoActual = _modoEstadisticas;       break;
     case _modoEstadisticas:       modoActual = _modoConfigurarTempMin;  break;
     case _modoConfigurarTempMin:  modoActual = _modoConfigurarTempMax;  break;
     case _modoConfigurarTempMax:  modoActual = _modoConfigurarUmbrales; break;
     case _modoConfigurarUmbrales: modoActual = _modoDebug;              break;
+    case _modoDebug:              modoActual = _modoEjecucionNormal;    break;
+  }
+  */
+  
+  //V2
+  switch (modoActual) {
+    case _modoEjecucionNormal:    modoActual = _modoEstadisticas;       break;
+    case _modoEstadisticas:       modoActual = _modoEjecucionNormal;    break;
+    
+    case _modoConfigurarTempMin:  modoActual = _modoConfigurarTempMax;  break;
+    case _modoConfigurarTempMax:  modoActual = _modoConfigurarUmbrales; break;
+    case _modoConfigurarUmbrales: modoActual = _modoEjecucionManual;    break;
+    
+    //SIN MODO DEBUG
+    //case _modoEjecucionManual:    modoActual = _modoDebug;              break;
+    
+    case _modoEjecucionManual:    modoActual = _modoEjecucionNormal;    break;
     case _modoDebug:              modoActual = _modoEjecucionNormal;    break;
   }
 
@@ -359,6 +392,8 @@ void cambiaModoBotonSelect() {
 void botonSetPulsado() {
   
   if (modoActual == _modoEjecucionNormal) { reiniciarContadorVolteo(); }
+  
+  else if (modoActual == _modoEstadisticas) { modoActual = _modoConfigurarTempMin; }
    
   else if (modoActual == _modoConfigurarTempMin) {
     if (TempMin < 40) TempMin = TempMin + 1;
@@ -377,6 +412,15 @@ void botonSetPulsado() {
     else umbralTemp = 0;
     EEPROM.write(EEPROMUmbral, umbralTemp);
   }  
+  
+  else if (modoActual == _modoEjecucionManual) {
+    if      (luzValue == 0 && velocidadVentilador == 0) { luzValue = 1; velocidadVentilador = 0; }
+    else if (luzValue == 1 && velocidadVentilador == 0) { luzValue = 0; velocidadVentilador = 1; }
+    else if (luzValue == 0 && velocidadVentilador == 1) { luzValue = 0; velocidadVentilador = 2; }
+    else if (luzValue == 0 && velocidadVentilador == 2) { luzValue = 0; velocidadVentilador = 3; }
+    else if (luzValue == 0 && velocidadVentilador == 3) { luzValue = 0; velocidadVentilador = 4; }
+    else if (luzValue == 0 && velocidadVentilador == 4) { luzValue = 0; velocidadVentilador = 0; }    
+  }
   
   
   else if (modoActual == _modoDebug) { 
@@ -595,7 +639,7 @@ void loop() {
   check_switches();
   muestrearTemperatura();
   
-  if (modoActual != _modoDebug)
+  if (modoActual != _modoEjecucionManual && modoActual != _modoDebug)
     evaluarEstado(); 
   
   controlVentilador();
